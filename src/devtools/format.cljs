@@ -87,6 +87,11 @@
     string-abbreviation-marker
     (apply str (take-last string-postfix-limit string))))
 
+(defn string-reference [source-string abbreviated-string-template body-template]
+  ; in https://codereview.chromium.org/1080033003 references in headers are forbidden
+  #_(reference (surrogate source-string abbreviated-string-template true body-template))
+  abbreviated-string-template)
+
 (defn string-template [source-string]
   (let [re-nl (js/RegExp. "\n" "g")
         inline-string (.replace source-string re-nl new-line-string-replacer)
@@ -98,7 +103,13 @@
             body-template (template ol standard-ol-style
                             (template li standard-li-style
                               (template span string-style (str dq string-with-nl-markers dq))))]
-        (reference (surrogate source-string abbreviated-string-template true body-template))))))
+        (string-reference source-string abbreviated-string-template body-template)))))
+
+(defn fn-template [value]
+  ; in https://codereview.chromium.org/1080033003 references in headers are forbidden
+  ; this clippled our ability to emit expdanable funtion references in headers
+  #_(template span fn-style (reference (surrogate value fn-label)))
+  (template span fn-style fn-label))
 
 (defn bool? [value]
   (or (true? value) (false? value)))
@@ -111,7 +122,7 @@
     (number? value) (number-template value)
     (keyword? value) (template span keyword-style (str ":" (name value)))
     (symbol? value) (template span symbol-style (str value))
-    (fn? value) (template span fn-style (reference (surrogate value fn-label)))))
+    (fn? value) (fn-template value)))
 
 (defn abbreviated? [template]
   (some #(= more-marker %) template))
@@ -124,17 +135,23 @@
   (-flush [_] nil))
 
 (defn wrap-group-in-reference-if-needed [group obj]
-  (if (abbreviated? group)
+  ; in https://codereview.chromium.org/1080033003 references in headers are forbidden
+  ; this clippled our ability to express individual sub-items in headers
+  #_(if (abbreviated? group)
     #js [(reference (surrogate obj (.concat (template span "") group)))]
-    group))
+    group)
+  group)
 
 ; default printer implementation can do this:
 ;   :else (write-all writer "#<" (str obj) ">")
 ; we want to wrap stringified obj in a reference for further inspection
 (defn detect-else-case-and-patch-it [group obj]
-  (if (and (= (count group) 3) (= (aget group 0) "#<") (= (str obj) (aget group 1)) (= (aget group 2) ">"))
+  ; in https://codereview.chromium.org/1080033003 references in headers are forbidden
+  ; this clippled our ability to express native js values in headers
+  #_(if (and (= (count group) 3) (= (aget group 0) "#<") (= (str obj) (aget group 1)) (= (aget group 2) ">"))
     (let [label (aget group 1)]
-      (aset group 1 (reference (surrogate obj label true (reference obj "inspect js object"))))))) ; TODO change to direct reference after devtools guys fix the bug
+      (aset group 1 (reference (surrogate obj label true (reference obj "inspect js object"))))))
+  nil)
 
 (defn alt-printer-impl [obj writer opts]
   (if-let [tmpl (atomic-template obj)]
@@ -221,16 +238,16 @@
     :else (build-header value)))
 
 (defn has-body [value]
-  ; note: body is emulated using surrogate references
   (cond
     (surrogate? value) (aget value "hasBody")
     (satisfies? IDevtoolsFormat value) (-has-body value)
-    :else false))
+    :else (abbreviated? (build-header value))))
 
 (defn body [value]
   (cond
     (surrogate? value) (build-surrogate-body value)
-    (satisfies? IDevtoolsFormat value) (-body value)))
+    (satisfies? IDevtoolsFormat value) (-body value)
+    :else (build-body value 0)))
 
 ;;;;;;;;; API CALLS
 
